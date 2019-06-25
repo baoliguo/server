@@ -1,0 +1,58 @@
+--echo #
+--echo # MDEV-16222 Assertion `0' failed in row_purge_remove_sec_if_poss_leaf on table with virtual columns and indexes
+--echo #
+
+--source include/have_innodb.inc
+--let $datadir= `select @@datadir`
+set @saved_frequency = @@global.innodb_purge_rseg_truncate_frequency;
+set global innodb_purge_rseg_truncate_frequency = 1;
+
+set global debug_dbug="+d,ib_purge_virtual_mdev_16222_1,ib_purge_virtual_mdev_16222_2";
+
+create table t1 (
+  pk serial,
+  vb tinyblob as (b) virtual,
+  b tinyblob,
+  y year,
+  c char(255),
+  primary key(pk),
+  index (y,vb(64))
+) engine=innodb;
+
+insert ignore into t1 (b,y,c) values ('foo',1981,'bar');
+
+select * from t1 into outfile 'load.data';
+load data infile 'load.data' replace into table t1;
+
+set debug_sync= "now WAIT_FOR latch_released";
+set global debug_dbug="-d,ib_purge_virtual_mdev_16222_1";
+drop table t1;
+--remove_file $datadir/test/load.data
+
+set debug_sync= "now SIGNAL drop_started WAIT_FOR got_no_such_table";
+
+create table t1 (
+  pk serial,
+  vb tinyblob as (b) virtual,
+  b tinyblob,
+  y year,
+  c char(255),
+  primary key(pk),
+  index (y,vb(64))
+) engine=innodb;
+
+insert ignore into t1 (b,y,c) values ('foo',1981,'bar');
+
+select * from t1 into outfile 'load.data';
+load data infile 'load.data' replace into table t1;
+
+set debug_sync= "now WAIT_FOR got_no_such_table";
+set global debug_dbug="-d,ib_purge_virtual_mdev_16222_2";
+set debug_sync= "RESET";
+
+# cleanup
+drop table t1;
+--remove_file $datadir/test/load.data
+
+set global innodb_purge_rseg_truncate_frequency = @saved_frequency;
+set global debug_dbug="";

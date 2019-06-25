@@ -20350,6 +20350,8 @@ static TABLE* innodb_acquire_mdl(THD* thd, dict_table_t* table)
 		return NULL;
 	}
 
+	DEBUG_SYNC(thd, "ib_purge_virtual_latch_released");
+
 	const table_id_t table_id = table->id;
 retry_mdl:
 	const bool unaccessible = !table->is_readable() || table->corrupted;
@@ -20361,6 +20363,7 @@ retry_mdl:
 
 	TABLE*	mariadb_table = open_purge_table(thd, db_buf, db_buf_len,
 						 tbl_buf, tbl_buf_len);
+	DEBUG_SYNC(thd, "ib_purge_virtual_got_no_such_table");
 
 	table = dict_table_open_on_id(table_id, false, DICT_TABLE_OP_NORMAL);
 
@@ -20410,6 +20413,20 @@ fail:
 for purge thread */
 static TABLE* innodb_find_table_for_vc(THD* thd, dict_table_t* table)
 {
+	DBUG_EXECUTE_IF(
+		"ib_purge_virtual_mdev_16222_1",
+		DBUG_ASSERT(!debug_sync_set_action(
+			    thd,
+			    STRING_WITH_LEN("ib_purge_virtual_latch_released "
+					    "SIGNAL latch_released "
+					    "WAIT_FOR drop_started"))););
+	DBUG_EXECUTE_IF(
+		"ib_purge_virtual_mdev_16222_2",
+		DBUG_ASSERT(!debug_sync_set_action(
+			    thd,
+			    STRING_WITH_LEN("ib_purge_virtual_got_no_such_table "
+					    "SIGNAL got_no_such_table"))););
+
 	if (THDVAR(thd, background_thread)) {
 		/* Purge thread acquires dict_sys.latch while
 		processing undo log record. Release it
@@ -20745,6 +20762,7 @@ innobase_get_computed_value(
 	dbug_tmp_restore_column_map(mysql_table->write_set, old_write_set);
 
 	if (ret != 0) {
+	// FIXME: Why this error message is macro-hidden?
 #ifdef INNODB_VIRTUAL_DEBUG
 		ib::warn() << "Compute virtual column values failed ";
 		fputs("InnoDB: Cannot compute value for following record ",

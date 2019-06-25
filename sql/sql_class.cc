@@ -4762,7 +4762,10 @@ TABLE *open_purge_table(THD *thd, const char *db, size_t dblen,
   DBUG_ASSERT(!error || !ot_ctx.can_recover_from_failed_open());
 
   if (unlikely(error))
+  {
     close_thread_tables(thd);
+    thd->clear_error();
+  }
 
   DBUG_RETURN(error ? NULL : tl->table);
 }
